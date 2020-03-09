@@ -3,7 +3,15 @@ name = "delay"
 version = "0.1.0"
 authors = ["Hans Larsen <hans@larsen.online>"]
 edition = "2018"
+description = "A collection of trait and classes to make your thread wait (and timeout)."
+homepage = "https://github.com/hansl/rs-delay"
+repository = "https://github.com/hansl/rs-delay"
+documentation = "https://docs.rs/delay"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "Apache-2.0"
+readme = "README.md"
+categories = []
+keywords = ["delay", "waiter", "thread", "sleep", "timeout"]
+include = ["Cargo.toml", "src", "README.md", "LICENSE"]
 
 [dependencies]
