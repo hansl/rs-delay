@@ -12,7 +12,7 @@ pub enum WaiterError {
 
 /// A waiter trait, that can be used for executing a delay. Waiters need to be
 /// multi-threaded and cloneable.
-pub trait Waiter {
+pub trait Waiter: Send + Sync {
     fn start(&mut self) {}
     fn wait(&self) -> Result<(), WaiterError>;
     fn stop(&self) {}
