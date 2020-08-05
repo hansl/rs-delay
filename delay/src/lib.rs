@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
 #[cfg(test)]
@@ -12,10 +12,36 @@ pub enum WaiterError {
 
 /// A waiter trait, that can be used for executing a delay. Waiters need to be
 /// multi-threaded and cloneable.
-pub trait Waiter: Send + Sync {
+/// A waiter should not be reused twice.
+pub trait Waiter: WaiterClone + Send {
+    /// Called when we start the waiting cycle.
     fn start(&mut self) {}
+
+    /// Called at each cycle of the waiting cycle.
     fn wait(&self) -> Result<(), WaiterError>;
-    fn stop(&self) {}
+}
+
+/// Implement cloning for Waiter. This requires a temporary (unfortunately public) trait
+/// to allow an implementation of box clone on Waiter.
+pub trait WaiterClone {
+    fn clone_box(&self) -> Box<dyn Waiter>;
+}
+
+/// Implement WaiterClone for every T that implements Clone.
+impl<T> WaiterClone for T
+where
+    T: 'static + Waiter + Clone,
+{
+    fn clone_box(&self) -> Box<dyn Waiter> {
+        Box::new(self.clone())
+    }
+}
+
+/// Finally, a Box of Waiter implements clone by calling the WaiterClone::clone_box method.
+impl Clone for Box<dyn Waiter> {
+    fn clone(&self) -> Self {
+        self.clone_box()
+    }
 }
 
 /// A Delay struct that encapsulates a Waiter.
@@ -24,44 +50,41 @@ pub trait Waiter: Send + Sync {
 /// on it (like [Delay::timeout]) or create a builder and add multiple Waiters.
 /// Then when you're ready to start a process that needs to wait, use the [start()]
 /// function. Every wait period, call the [wait()] function on it (it may block the
-/// thread). When you're done, you may call [stop()].
-///
-/// Waiters can be reused and re-started, but most would expect to have [stop()]
-/// called on them when you do, to free any additional resources.
+/// thread).
 #[derive(Clone)]
 pub struct Delay {
-    inner: Arc<dyn Waiter>,
+    inner: Box<dyn Waiter>,
 }
 
 impl Delay {
-    fn from(inner: Arc<dyn Waiter>) -> Self {
+    fn from(inner: Box<dyn Waiter>) -> Self {
         Delay { inner }
     }
 
     /// A Delay that never waits. This can hog resources, so careful.
     pub fn instant() -> Self {
-        Self::from(Arc::new(InstantWaiter {}))
+        Self::from(Box::new(InstantWaiter {}))
     }
 
     /// A Delay that doesn't wait, but times out after a while.
     pub fn timeout(timeout: Duration) -> Self {
-        Self::from(Arc::new(TimeoutWaiter::new(timeout)))
+        Self::from(Box::new(TimeoutWaiter::new(timeout)))
     }
 
     /// A Delay that times out after waiting a certain number of times.
     pub fn count_timeout(count: u64) -> Self {
-        Self::from(Arc::new(CountTimeoutWaiter::new(count)))
+        Self::from(Box::new(CountTimeoutWaiter::new(count)))
     }
 
     /// A delay that waits every wait() call for a certain time.
     pub fn throttle(throttle: Duration) -> Self {
-        Self::from(Arc::new(ThrottleWaiter::new(throttle)))
+        Self::from(Box::new(ThrottleWaiter::new(throttle)))
     }
 
     /// A delay that recalculate a wait time every wait() calls and exponentially waits.
     /// The calculation is new_wait_time = max(current_wait_time * multiplier, cap).
     pub fn exponential_backoff_capped(initial: Duration, multiplier: f32, cap: Duration) -> Self {
-        Self::from(Arc::new(ExponentialBackoffWaiter::new(
+        Self::from(Box::new(ExponentialBackoffWaiter::new(
             initial, multiplier, cap,
         )))
     }
@@ -80,13 +103,10 @@ impl Delay {
 
 impl Waiter for Delay {
     fn start(&mut self) {
-        Arc::get_mut(&mut self.inner).unwrap().start()
+        self.inner.start()
     }
     fn wait(&self) -> Result<(), WaiterError> {
         self.inner.wait()
-    }
-    fn stop(&self) {
-        self.inner.stop()
     }
 }
 
@@ -101,7 +121,7 @@ impl DelayBuilder {
     pub fn with(mut self, other: Delay) -> Self {
         self.inner = Some(match self.inner.take() {
             None => other,
-            Some(w) => Delay::from(Arc::new(DelayComposer::new(w, other))),
+            Some(w) => Delay::from(Box::new(DelayComposer::new(w, other))),
         });
         self
     }
@@ -147,10 +167,6 @@ impl Waiter for DelayComposer {
         self.b.wait()?;
         Ok(())
     }
-    fn stop(&self) {
-        self.a.stop();
-        self.b.stop();
-    }
 }
 
 #[derive(Clone)]
@@ -190,24 +206,24 @@ impl Waiter for TimeoutWaiter {
 #[derive(Clone)]
 struct CountTimeoutWaiter {
     max_count: u64,
-    count: Arc<Mutex<u64>>,
+    count: RefCell<u64>,
 }
 impl CountTimeoutWaiter {
     pub fn new(max_count: u64) -> Self {
         CountTimeoutWaiter {
             max_count,
-            count: Arc::new(Mutex::new(0)),
+            count: RefCell::new(0),
         }
     }
 }
 impl Waiter for CountTimeoutWaiter {
     fn start(&mut self) {
-        *self.count.lock().unwrap() = 0;
+        self.count = RefCell::new(0);
     }
 
     fn wait(&self) -> Result<(), WaiterError> {
-        let current = *self.count.lock().unwrap() + 1;
-        *self.count.lock().unwrap() = current;
+        let current = *self.count.borrow() + 1;
+        self.count.replace(current);
 
         if current >= self.max_count {
             Err(WaiterError::Timeout)
@@ -236,7 +252,7 @@ impl Waiter for ThrottleWaiter {
 
 #[derive(Clone)]
 struct ExponentialBackoffWaiter {
-    next: Arc<Mutex<Duration>>,
+    next: RefCell<Duration>,
     initial: Duration,
     multiplier: f32,
     cap: Duration,
@@ -244,7 +260,7 @@ struct ExponentialBackoffWaiter {
 impl ExponentialBackoffWaiter {
     pub fn new(initial: Duration, multiplier: f32, cap: Duration) -> Self {
         ExponentialBackoffWaiter {
-            next: Arc::new(Mutex::new(initial)),
+            next: RefCell::new(initial),
             initial,
             multiplier,
             cap,
@@ -253,11 +269,11 @@ impl ExponentialBackoffWaiter {
 }
 impl Waiter for ExponentialBackoffWaiter {
     fn start(&mut self) {
-        self.next = Arc::new(Mutex::new(self.initial));
+        self.next = RefCell::new(self.initial);
     }
 
     fn wait(&self) -> Result<(), WaiterError> {
-        let current = *self.next.lock().unwrap();
+        let current = *self.next.borrow();
         let current_nsec = current.as_nanos() as f32;
 
         // Find the next throttle.
@@ -266,7 +282,7 @@ impl Waiter for ExponentialBackoffWaiter {
             next_duration = self.cap;
         }
 
-        *self.next.lock().unwrap() = next_duration;
+        self.next.replace(next_duration);
 
         std::thread::sleep(current);
 
