@@ -1,6 +1,6 @@
 [package]
 name = "delay"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Hans Larsen <hans@larsen.online>"]
 edition = "2018"
 description = "A collection of trait and classes to make your thread wait (and timeout)."
