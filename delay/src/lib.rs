@@ -96,6 +96,15 @@ impl Delay {
         Self::exponential_backoff_capped(initial, multiplier, Duration::from_secs(std::u64::MAX))
     }
 
+    /// Call a function every tick, expecting some kind of side effect (e.g. a progress
+    /// bar).
+    pub fn side_effect<F>(function: F) -> Self
+    where
+        F: 'static + Sync + Send + Clone + Fn() -> Result<(), WaiterError>,
+    {
+        Self::from(Box::new(SideEffectWaiter::new(function)))
+    }
+
     pub fn builder() -> DelayBuilder {
         DelayBuilder { inner: None }
     }
@@ -141,6 +150,12 @@ impl DelayBuilder {
         cap: Duration,
     ) -> Self {
         self.with(Delay::exponential_backoff_capped(initial, multiplier, cap))
+    }
+    pub fn side_effect<F>(self, function: F) -> Self
+    where
+        F: 'static + Sync + Send + Clone + Fn() -> Result<(), WaiterError>,
+    {
+        self.with(Delay::side_effect(function))
     }
     pub fn build(mut self) -> Delay {
         self.inner.take().unwrap_or_else(Delay::instant)
@@ -287,5 +302,30 @@ impl Waiter for ExponentialBackoffWaiter {
         std::thread::sleep(current);
 
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+struct SideEffectWaiter<F>
+where
+    F: 'static + Sync + Send + Clone + Fn() -> Result<(), WaiterError>,
+{
+    function: F,
+}
+
+impl<F> SideEffectWaiter<F>
+where
+    F: 'static + Sync + Send + Clone + Fn() -> Result<(), WaiterError>,
+{
+    pub fn new(function: F) -> Self {
+        Self { function }
+    }
+}
+impl<F> Waiter for SideEffectWaiter<F>
+where
+    F: 'static + Sync + Send + Clone + Fn() -> Result<(), WaiterError>,
+{
+    fn wait(&self) -> Result<(), WaiterError> {
+        (self.function)()
     }
 }
