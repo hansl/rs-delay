@@ -8,16 +8,24 @@ mod tests;
 #[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, PartialEq)]
 pub enum WaiterError {
     Timeout,
+    NotStarted,
 }
 
 /// A waiter trait, that can be used for executing a delay. Waiters need to be
 /// multi-threaded and cloneable.
 /// A waiter should not be reused twice.
 pub trait Waiter: WaiterClone + Send {
+    /// Restart the wait timer.
+    /// Call after starting the waiter otherwise returns an error.
+    fn restart(&mut self) -> Result<(), WaiterError> {
+        Ok(())
+    }
+
     /// Called when we start the waiting cycle.
     fn start(&mut self) {}
 
     /// Called at each cycle of the waiting cycle.
+    /// Call after starting the waiter otherwise returns an error.
     fn wait(&self) -> Result<(), WaiterError>;
 }
 
@@ -111,6 +119,9 @@ impl Delay {
 }
 
 impl Waiter for Delay {
+    fn restart(&mut self) -> Result<(), WaiterError> {
+        self.inner.restart()
+    }
     fn start(&mut self) {
         self.inner.start()
     }
@@ -173,6 +184,11 @@ impl DelayComposer {
     }
 }
 impl Waiter for DelayComposer {
+    fn restart(&mut self) -> Result<(), WaiterError> {
+        self.a.restart()?;
+        self.b.restart()?;
+        Ok(())
+    }
     fn start(&mut self) {
         self.a.start();
         self.b.start();
@@ -195,25 +211,38 @@ impl Waiter for InstantWaiter {
 #[derive(Clone)]
 struct TimeoutWaiter {
     timeout: Duration,
-    start: Instant,
+    start: Option<Instant>,
 }
 impl TimeoutWaiter {
     pub fn new(timeout: Duration) -> Self {
         Self {
             timeout,
-            start: Instant::now(),
+            start: None,
         }
     }
 }
 impl Waiter for TimeoutWaiter {
+    fn restart(&mut self) -> Result<(), WaiterError> {
+        match self.start {
+            Some(_) => {
+                self.start = Some(Instant::now());
+                Ok(())
+            }
+            None => Err(WaiterError::NotStarted),
+        }
+    }
     fn start(&mut self) {
-        self.start = Instant::now();
+        self.start = Some(Instant::now());
     }
     fn wait(&self) -> Result<(), WaiterError> {
-        if self.start.elapsed() > self.timeout {
-            Err(WaiterError::Timeout)
+        if let Some(start) = self.start {
+            if start.elapsed() > self.timeout {
+                Err(WaiterError::Timeout)
+            } else {
+                Ok(())
+            }
         } else {
-            Ok(())
+            Err(WaiterError::NotStarted)
         }
     }
 }
@@ -221,29 +250,43 @@ impl Waiter for TimeoutWaiter {
 #[derive(Clone)]
 struct CountTimeoutWaiter {
     max_count: u64,
-    count: RefCell<u64>,
+    count: Option<RefCell<u64>>,
 }
 impl CountTimeoutWaiter {
     pub fn new(max_count: u64) -> Self {
         CountTimeoutWaiter {
             max_count,
-            count: RefCell::new(0),
+            count: None,
         }
     }
 }
 impl Waiter for CountTimeoutWaiter {
+    fn restart(&mut self) -> Result<(), WaiterError> {
+        match &self.count {
+            Some(count) => {
+                count.replace(0);
+                Ok(())
+            }
+            None => Err(WaiterError::NotStarted),
+        }
+    }
+
     fn start(&mut self) {
-        self.count = RefCell::new(0);
+        self.count = Some(RefCell::new(0));
     }
 
     fn wait(&self) -> Result<(), WaiterError> {
-        let current = *self.count.borrow() + 1;
-        self.count.replace(current);
+        if let Some(count) = &self.count {
+            let current = *count.borrow() + 1;
+            count.replace(current);
 
-        if current >= self.max_count {
-            Err(WaiterError::Timeout)
+            if current >= self.max_count {
+                Err(WaiterError::Timeout)
+            } else {
+                Ok(())
+            }
         } else {
-            Ok(())
+            Err(WaiterError::NotStarted)
         }
     }
 }
@@ -267,7 +310,7 @@ impl Waiter for ThrottleWaiter {
 
 #[derive(Clone)]
 struct ExponentialBackoffWaiter {
-    next: RefCell<Duration>,
+    next: Option<RefCell<Duration>>,
     initial: Duration,
     multiplier: f32,
     cap: Duration,
@@ -275,7 +318,7 @@ struct ExponentialBackoffWaiter {
 impl ExponentialBackoffWaiter {
     pub fn new(initial: Duration, multiplier: f32, cap: Duration) -> Self {
         ExponentialBackoffWaiter {
-            next: RefCell::new(initial),
+            next: None,
             initial,
             multiplier,
             cap,
@@ -283,25 +326,39 @@ impl ExponentialBackoffWaiter {
     }
 }
 impl Waiter for ExponentialBackoffWaiter {
+    fn restart(&mut self) -> Result<(), WaiterError> {
+        match &self.next {
+            Some(next) => {
+                next.replace(self.initial);
+                Ok(())
+            }
+            None => Err(WaiterError::NotStarted),
+        }
+    }
+
     fn start(&mut self) {
-        self.next = RefCell::new(self.initial);
+        self.next = Some(RefCell::new(self.initial));
     }
 
     fn wait(&self) -> Result<(), WaiterError> {
-        let current = *self.next.borrow();
-        let current_nsec = current.as_nanos() as f32;
+        if let Some(next) = &self.next {
+            let current = *next.borrow();
+            let current_nsec = current.as_nanos() as f32;
 
-        // Find the next throttle.
-        let mut next_duration = Duration::from_nanos((current_nsec * self.multiplier) as u64);
-        if next_duration > self.cap {
-            next_duration = self.cap;
+            // Find the next throttle.
+            let mut next_duration = Duration::from_nanos((current_nsec * self.multiplier) as u64);
+            if next_duration > self.cap {
+                next_duration = self.cap;
+            }
+
+            next.replace(next_duration);
+
+            std::thread::sleep(current);
+
+            Ok(())
+        } else {
+            Err(WaiterError::NotStarted)
         }
-
-        self.next.replace(next_duration);
-
-        std::thread::sleep(current);
-
-        Ok(())
     }
 }
 
