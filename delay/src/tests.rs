@@ -54,3 +54,40 @@ fn clone_works() {
     assert!(waiter2.wait().is_ok());
     assert!(waiter2.wait().is_err());
 }
+
+#[test]
+fn cannot_restart_or_wait_without_start() {
+    let mut waiter = Delay::timeout(Duration::from_millis(50));
+    assert!(waiter.wait().is_err());
+    assert!(waiter.restart().is_err());
+    waiter.start();
+    assert!(waiter.wait().is_ok());
+    assert!(waiter.restart().is_ok());
+
+    let mut waiter1 = Delay::count_timeout(3);
+    assert!(waiter1.wait().is_err());
+    assert!(waiter1.restart().is_err());
+    waiter1.start();
+    assert!(waiter1.wait().is_ok());
+    assert!(waiter1.restart().is_ok());
+}
+
+#[test]
+fn restart_works() {
+    let mut waiter = Delay::timeout(Duration::from_millis(50));
+    waiter.start();
+
+    assert!(waiter.wait().is_ok());
+    std::thread::sleep(Duration::from_millis(10));
+    assert!(waiter.wait().is_ok());
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(waiter.wait().is_err());
+
+    assert!(waiter.restart().is_ok());
+
+    assert!(waiter.wait().is_ok());
+    std::thread::sleep(Duration::from_millis(10));
+    assert!(waiter.wait().is_ok());
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(waiter.wait().is_err());
+}
