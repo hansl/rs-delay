@@ -235,14 +235,11 @@ impl Waiter for TimeoutWaiter {
         self.start = Some(Instant::now());
     }
     fn wait(&self) -> Result<(), WaiterError> {
-        if let Some(start) = self.start {
-            if start.elapsed() > self.timeout {
-                Err(WaiterError::Timeout)
-            } else {
-                Ok(())
-            }
+        let start = self.start.ok_or(WaiterError::NotStarted)?;
+        if start.elapsed() > self.timeout {
+            Err(WaiterError::Timeout)
         } else {
-            Err(WaiterError::NotStarted)
+            Ok(())
         }
     }
 }
@@ -276,17 +273,14 @@ impl Waiter for CountTimeoutWaiter {
     }
 
     fn wait(&self) -> Result<(), WaiterError> {
-        if let Some(count) = &self.count {
-            let current = *count.borrow() + 1;
-            count.replace(current);
+        let count = self.count.as_ref().ok_or(WaiterError::NotStarted)?;
+        let current = *count.borrow() + 1;
+        count.replace(current);
 
-            if current >= self.max_count {
-                Err(WaiterError::Timeout)
-            } else {
-                Ok(())
-            }
+        if current >= self.max_count {
+            Err(WaiterError::Timeout)
         } else {
-            Err(WaiterError::NotStarted)
+            Ok(())
         }
     }
 }
@@ -341,24 +335,21 @@ impl Waiter for ExponentialBackoffWaiter {
     }
 
     fn wait(&self) -> Result<(), WaiterError> {
-        if let Some(next) = &self.next {
-            let current = *next.borrow();
-            let current_nsec = current.as_nanos() as f32;
+        let next = self.next.as_ref().ok_or(WaiterError::NotStarted)?;
+        let current = *next.borrow();
+        let current_nsec = current.as_nanos() as f32;
 
-            // Find the next throttle.
-            let mut next_duration = Duration::from_nanos((current_nsec * self.multiplier) as u64);
-            if next_duration > self.cap {
-                next_duration = self.cap;
-            }
-
-            next.replace(next_duration);
-
-            std::thread::sleep(current);
-
-            Ok(())
-        } else {
-            Err(WaiterError::NotStarted)
+        // Find the next throttle.
+        let mut next_duration = Duration::from_nanos((current_nsec * self.multiplier) as u64);
+        if next_duration > self.cap {
+            next_duration = self.cap;
         }
+
+        next.replace(next_duration);
+
+        std::thread::sleep(current);
+
+        Ok(())
     }
 }
 
