@@ -223,13 +223,9 @@ impl TimeoutWaiter {
 }
 impl Waiter for TimeoutWaiter {
     fn restart(&mut self) -> Result<(), WaiterError> {
-        match self.start {
-            Some(_) => {
-                self.start = Some(Instant::now());
-                Ok(())
-            }
-            None => Err(WaiterError::NotStarted),
-        }
+        let _ = self.start.ok_or(WaiterError::NotStarted)?;
+        self.start = Some(Instant::now());
+        Ok(())
     }
     fn start(&mut self) {
         self.start = Some(Instant::now());
@@ -259,13 +255,9 @@ impl CountTimeoutWaiter {
 }
 impl Waiter for CountTimeoutWaiter {
     fn restart(&mut self) -> Result<(), WaiterError> {
-        match &self.count {
-            Some(count) => {
-                count.replace(0);
-                Ok(())
-            }
-            None => Err(WaiterError::NotStarted),
-        }
+        let count = self.count.as_ref().ok_or(WaiterError::NotStarted)?;
+        count.replace(0);
+        Ok(())
     }
 
     fn start(&mut self) {
@@ -321,13 +313,9 @@ impl ExponentialBackoffWaiter {
 }
 impl Waiter for ExponentialBackoffWaiter {
     fn restart(&mut self) -> Result<(), WaiterError> {
-        match &self.next {
-            Some(next) => {
-                next.replace(self.initial);
-                Ok(())
-            }
-            None => Err(WaiterError::NotStarted),
-        }
+        let next = self.next.as_ref().ok_or(WaiterError::NotStarted)?;
+        next.replace(self.initial);
+        Ok(())
     }
 
     fn start(&mut self) {
