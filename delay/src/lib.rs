@@ -1,5 +1,11 @@
 use std::cell::RefCell;
+use std::future::Future;
+use std::pin::Pin;
 use std::time::{Duration, Instant};
+
+mod throttle;
+pub use throttle::ExponentialBackoffWaiter;
+pub use throttle::ThrottleWaiter;
 
 #[cfg(test)]
 mod tests;
@@ -27,6 +33,13 @@ pub trait Waiter: WaiterClone + Send {
     /// Called at each cycle of the waiting cycle.
     /// Call after starting the waiter otherwise returns an error.
     fn wait(&self) -> Result<(), WaiterError>;
+
+    /// Async version of [wait]. By default call the blocking wait. Should be implemented
+    /// to be non-blocking.
+    #[cfg(feature = "async")]
+    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>>>> {
+        Box::pin(std::future::ready(self.wait()))
+    }
 }
 
 /// Implement cloning for Waiter. This requires a temporary (unfortunately public) trait
@@ -127,6 +140,11 @@ impl Waiter for Delay {
     }
     fn wait(&self) -> Result<(), WaiterError> {
         self.inner.wait()
+    }
+
+    #[cfg(feature = "async")]
+    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>>>> {
+        self.inner.async_wait()
     }
 }
 
@@ -274,70 +292,6 @@ impl Waiter for CountTimeoutWaiter {
         } else {
             Ok(())
         }
-    }
-}
-
-#[derive(Clone)]
-struct ThrottleWaiter {
-    throttle: Duration,
-}
-impl ThrottleWaiter {
-    pub fn new(throttle: Duration) -> Self {
-        Self { throttle }
-    }
-}
-impl Waiter for ThrottleWaiter {
-    fn wait(&self) -> Result<(), WaiterError> {
-        std::thread::sleep(self.throttle);
-
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
-struct ExponentialBackoffWaiter {
-    next: Option<RefCell<Duration>>,
-    initial: Duration,
-    multiplier: f32,
-    cap: Duration,
-}
-impl ExponentialBackoffWaiter {
-    pub fn new(initial: Duration, multiplier: f32, cap: Duration) -> Self {
-        ExponentialBackoffWaiter {
-            next: None,
-            initial,
-            multiplier,
-            cap,
-        }
-    }
-}
-impl Waiter for ExponentialBackoffWaiter {
-    fn restart(&mut self) -> Result<(), WaiterError> {
-        let next = self.next.as_ref().ok_or(WaiterError::NotStarted)?;
-        next.replace(self.initial);
-        Ok(())
-    }
-
-    fn start(&mut self) {
-        self.next = Some(RefCell::new(self.initial));
-    }
-
-    fn wait(&self) -> Result<(), WaiterError> {
-        let next = self.next.as_ref().ok_or(WaiterError::NotStarted)?;
-        let current = *next.borrow();
-        let current_nsec = current.as_nanos() as f32;
-
-        // Find the next throttle.
-        let mut next_duration = Duration::from_nanos((current_nsec * self.multiplier) as u64);
-        if next_duration > self.cap {
-            next_duration = self.cap;
-        }
-
-        next.replace(next_duration);
-
-        std::thread::sleep(current);
-
-        Ok(())
     }
 }
 

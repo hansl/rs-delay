@@ -15,3 +15,6 @@ keywords = ["delay", "waiter", "thread", "sleep", "timeout"]
 include = ["Cargo.toml", "src", "README.md", "LICENSE"]
 
 [dependencies]
+
+[features]
+async = []
