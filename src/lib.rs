@@ -58,7 +58,7 @@ pub trait Waiter: WaiterClone + Send {
     /// Async version of [wait]. By default call the blocking wait. Should be implemented
     /// to be non-blocking.
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>>>> {
+    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
         Box::pin(future::ready(self.wait()))
     }
 }
@@ -106,7 +106,7 @@ impl Waiter for Box<dyn Waiter> {
     /// Async version of [wait]. By default call the blocking wait. Should be implemented
     /// to be non-blocking.
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>>>> {
+    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
         self.as_ref().async_wait()
     }
 }
@@ -193,7 +193,7 @@ impl Waiter for Delay {
     }
 
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>>>> {
+    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
         self.inner.async_wait()
     }
 }

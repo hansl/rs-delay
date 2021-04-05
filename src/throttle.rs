@@ -103,7 +103,7 @@ impl Waiter for ThrottleWaiter {
     }
 
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>>>> {
+    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
         Box::pin(future::ThrottleTimerFuture::new(self.throttle))
     }
 }
@@ -155,7 +155,7 @@ impl Waiter for ExponentialBackoffWaiter {
     }
 
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>>>> {
+    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
         let next = if let Some(next) = self.next.as_ref() {
             next
         } else {
