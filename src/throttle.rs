@@ -1,25 +1,24 @@
 #![cfg(not(feature = "no_std"))]
 use crate::{Waiter, WaiterError};
 use std::cell::RefCell;
+use std::time::Duration;
 
 #[cfg(feature = "async")]
-use core::{future::Future, pin::Pin};
-use std::thread::sleep;
-use std::time::Duration;
+use std::{future::Future, pin::Pin};
 
 #[cfg(feature = "async")]
 mod future {
     use crate::WaiterError;
-    use core::future::Future;
-    use core::pin::Pin;
-    use core::task::{Context, Poll, Waker};
-    use core::thread::{sleep, spawn};
-    use core::time::Duration;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::{Arc, Mutex};
+    use std::task::{Context, Poll, Waker};
+    use std::time::Duration;
 
     /// A Future that resolves when a time has passed.
     /// This is based on [https://rust-lang.github.io/async-book/02_execution/03_wakeups.html].
     pub(super) struct ThrottleTimerFuture {
-        shared_state: SharedState,
+        shared_state: Arc<Mutex<SharedState>>,
     }
 
     /// Shared state between the future and the waiting thread
@@ -64,15 +63,15 @@ mod future {
         /// Create a new `TimerFuture` which will complete after the provided
         /// timeout.
         pub fn new(duration: Duration) -> Self {
-            let shared_state = SharedState {
+            let shared_state = Arc::new(Mutex::new(SharedState {
                 completed: false,
                 waker: None,
-            };
+            }));
 
             // Spawn the new thread
             let thread_shared_state = shared_state.clone();
-            spawn(move || {
-                sleep(duration);
+            std::thread::spawn(move || {
+                std::thread::sleep(duration);
                 let mut shared_state = thread_shared_state.lock().unwrap();
                 // Signal that the timer has completed and wake up the last
                 // task on which the future was polled, if one exists.
@@ -98,7 +97,7 @@ impl ThrottleWaiter {
 }
 impl Waiter for ThrottleWaiter {
     fn wait(&self) -> Result<(), WaiterError> {
-        sleep(self.throttle);
+        std::thread::sleep(self.throttle);
 
         Ok(())
     }
