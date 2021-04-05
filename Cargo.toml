@@ -1,9 +1,9 @@
 [package]
-name = "delay"
-version = "0.3.2"
+name = "garcon"
+version = "0.1.0"
 authors = ["Hans Larsen <hans@larsen.online>"]
 edition = "2018"
-description = "A collection of trait and classes to make your thread wait (and timeout)."
+description = "A collection of trait and classes to make your thread or async function wait."
 homepage = "https://github.com/hansl/rs-delay"
 repository = "https://github.com/hansl/rs-delay"
 documentation = "https://docs.rs/delay"
