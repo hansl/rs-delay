@@ -7,6 +7,9 @@ mod throttle;
 pub use throttle::ExponentialBackoffWaiter;
 pub use throttle::ThrottleWaiter;
 
+mod compose;
+pub use compose::DelayComposer;
+
 #[cfg(test)]
 mod tests;
 
@@ -188,33 +191,6 @@ impl DelayBuilder {
     }
     pub fn build(mut self) -> Delay {
         self.inner.take().unwrap_or_else(Delay::instant)
-    }
-}
-
-#[derive(Clone)]
-struct DelayComposer {
-    a: Delay,
-    b: Delay,
-}
-impl DelayComposer {
-    fn new(a: Delay, b: Delay) -> Self {
-        Self { a, b }
-    }
-}
-impl Waiter for DelayComposer {
-    fn restart(&mut self) -> Result<(), WaiterError> {
-        self.a.restart()?;
-        self.b.restart()?;
-        Ok(())
-    }
-    fn start(&mut self) {
-        self.a.start();
-        self.b.start();
-    }
-    fn wait(&self) -> Result<(), WaiterError> {
-        self.a.wait()?;
-        self.b.wait()?;
-        Ok(())
     }
 }
 
