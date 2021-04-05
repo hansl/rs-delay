@@ -124,10 +124,6 @@ pub struct Delay {
 }
 
 impl Delay {
-    fn from(inner: Box<dyn Waiter>) -> Self {
-        Delay { inner }
-    }
-
     /// A Delay that never waits. This can hog resources, so careful.
     pub fn instant() -> Self {
         Self::from(Box::new(InstantWaiter {}))
@@ -178,6 +174,12 @@ impl Delay {
 
     pub fn builder() -> DelayBuilder {
         DelayBuilder { inner: None }
+    }
+}
+
+impl<T: Waiter + 'static> From<Box<T>> for Delay {
+    fn from(inner: Box<T>) -> Self {
+        Delay { inner }
     }
 }
 
