@@ -86,6 +86,31 @@ impl Clone for Box<dyn Waiter> {
     }
 }
 
+/// A Box of Waiter is also a Waiter
+impl Waiter for Box<dyn Waiter> {
+    fn restart(&mut self) -> Result<(), WaiterError> {
+        self.as_mut().restart()
+    }
+
+    /// Called when we start the waiting cycle.
+    fn start(&mut self) {
+        self.as_mut().start()
+    }
+
+    /// Called at each cycle of the waiting cycle.
+    /// Call after starting the waiter otherwise returns an error.
+    fn wait(&self) -> Result<(), WaiterError> {
+        self.as_ref().wait()
+    }
+
+    /// Async version of [wait]. By default call the blocking wait. Should be implemented
+    /// to be non-blocking.
+    #[cfg(feature = "async")]
+    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>>>> {
+        self.as_ref().async_wait()
+    }
+}
+
 /// A Delay struct that encapsulates a Waiter.
 ///
 /// To use this class, first create an instance of it by either calling a method
