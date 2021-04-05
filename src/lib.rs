@@ -82,7 +82,7 @@ where
 /// Finally, a Box of Waiter implements clone by calling the WaiterClone::clone_box method.
 impl Clone for Box<dyn Waiter> {
     fn clone(&self) -> Self {
-        self.clone_box()
+        WaiterClone::clone_box(self.as_ref())
     }
 }
 
@@ -118,12 +118,15 @@ impl Waiter for Box<dyn Waiter> {
 /// Then when you're ready to start a process that needs to wait, use the [start()]
 /// function. Every wait period, call the [wait()] function on it (it may block the
 /// thread).
-#[derive(Clone)]
 pub struct Delay {
     inner: Box<dyn Waiter>,
 }
 
 impl Delay {
+    pub fn from(inner: Box<dyn Waiter>) -> Self {
+        Delay { inner }
+    }
+
     /// A Delay that never waits. This can hog resources, so careful.
     pub fn instant() -> Self {
         Self::from(Box::new(InstantWaiter {}))
@@ -177,9 +180,9 @@ impl Delay {
     }
 }
 
-impl<T: Waiter + 'static> From<Box<T>> for Delay {
-    fn from(inner: Box<T>) -> Self {
-        Delay { inner }
+impl Clone for Delay {
+    fn clone(&self) -> Self {
+        Self::from(self.inner.clone_box())
     }
 }
 

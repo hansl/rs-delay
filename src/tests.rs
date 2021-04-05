@@ -41,9 +41,7 @@ fn counter_works() {
 #[test]
 fn clone_works() {
     let mut waiter1 = Delay::count_timeout(3);
-    eprintln!("1");
     let mut waiter2 = waiter1.clone();
-    eprintln!("2");
 
     waiter1.start();
     assert!(waiter1.wait().is_ok());
@@ -91,4 +89,29 @@ fn restart_works() {
     assert!(waiter.wait().is_ok());
     std::thread::sleep(Duration::from_millis(50));
     assert!(waiter.wait().is_err());
+}
+
+#[test]
+fn can_send_between_threads() {
+    let mut waiter = Delay::count_timeout(5);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx_end, rx_end) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        waiter.start();
+
+        while let Some(x) = rx.recv().unwrap_or(None) {
+            for _i in 1..x {
+                waiter.wait().unwrap();
+            }
+        }
+
+        tx_end.send(()).unwrap();
+    });
+
+    tx.send(Some(4)).unwrap();
+    tx.send(Some(1)).unwrap();
+    tx.send(None).unwrap();
+
+    rx_end.recv_timeout(Duration::from_millis(100)).unwrap();
 }
