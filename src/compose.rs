@@ -1,5 +1,10 @@
 use crate::{Delay, Waiter, WaiterError};
-use std::pin::Pin;
+
+#[cfg(feature = "async")]
+use core::{future::Future, pin::Pin};
+
+#[cfg(all(feature = "no_std", feature = "async"))]
+use alloc::boxed::Box;
 
 #[derive(Clone)]
 pub struct DelayComposer {
@@ -28,7 +33,7 @@ impl Waiter for DelayComposer {
     }
 
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn std::future::Future<Output = Result<(), WaiterError>>>> {
+    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>>>> {
         use futures_util::TryFutureExt;
         Box::pin(
             futures_util::future::try_join(self.a.async_wait(), self.b.async_wait()).map_ok(|_| ()),

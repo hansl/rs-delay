@@ -1,4 +1,5 @@
 #![cfg(test)]
+#![cfg(not(feature = "no_std"))]
 use crate::{Delay, Waiter};
 use std::time::{Duration, Instant};
 

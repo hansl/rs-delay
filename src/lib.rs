@@ -1,11 +1,29 @@
-use std::cell::RefCell;
-use std::future::Future;
-use std::pin::Pin;
-use std::time::{Duration, Instant};
+#![cfg_attr(feature = "no_std", no_std)]
+extern crate alloc;
 
+use alloc::boxed::Box;
+use core::cell::RefCell;
+
+#[cfg(not(feature = "no_std"))]
+use core::time::Duration;
+
+#[cfg(feature = "async")]
+use core::{
+    future::{self, Future},
+    pin::Pin,
+};
+
+#[cfg(not(feature = "no_std"))]
 mod throttle;
+#[cfg(not(feature = "no_std"))]
 pub use throttle::ExponentialBackoffWaiter;
+#[cfg(not(feature = "no_std"))]
 pub use throttle::ThrottleWaiter;
+
+#[cfg(not(feature = "no_std"))]
+mod timeout;
+#[cfg(not(feature = "no_std"))]
+pub use timeout::TimeoutWaiter;
 
 mod compose;
 pub use compose::DelayComposer;
@@ -41,7 +59,7 @@ pub trait Waiter: WaiterClone + Send {
     /// to be non-blocking.
     #[cfg(feature = "async")]
     fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>>>> {
-        Box::pin(std::future::ready(self.wait()))
+        Box::pin(future::ready(self.wait()))
     }
 }
 
@@ -91,6 +109,7 @@ impl Delay {
     }
 
     /// A Delay that doesn't wait, but times out after a while.
+    #[cfg(not(feature = "no_std"))]
     pub fn timeout(timeout: Duration) -> Self {
         Self::from(Box::new(TimeoutWaiter::new(timeout)))
     }
@@ -101,12 +120,14 @@ impl Delay {
     }
 
     /// A delay that waits every wait() call for a certain time.
+    #[cfg(not(feature = "no_std"))]
     pub fn throttle(throttle: Duration) -> Self {
         Self::from(Box::new(ThrottleWaiter::new(throttle)))
     }
 
     /// A delay that recalculate a wait time every wait() calls and exponentially waits.
     /// The calculation is new_wait_time = max(current_wait_time * multiplier, cap).
+    #[cfg(not(feature = "no_std"))]
     pub fn exponential_backoff_capped(initial: Duration, multiplier: f32, cap: Duration) -> Self {
         Self::from(Box::new(ExponentialBackoffWaiter::new(
             initial, multiplier, cap,
@@ -116,6 +137,7 @@ impl Delay {
     /// A delay that recalculate a wait time every wait() calls and exponentially waits.
     /// The calculation is new_wait_time = current_wait_time * multiplier.
     /// There is no limit for this backoff.
+    #[cfg(not(feature = "no_std"))]
     pub fn exponential_backoff(initial: Duration, multiplier: f32) -> Self {
         Self::exponential_backoff_capped(initial, multiplier, Duration::from_secs(std::u64::MAX))
     }
@@ -166,15 +188,19 @@ impl DelayBuilder {
         });
         self
     }
+    #[cfg(not(feature = "no_std"))]
     pub fn timeout(self, timeout: Duration) -> Self {
         self.with(Delay::timeout(timeout))
     }
+    #[cfg(not(feature = "no_std"))]
     pub fn throttle(self, throttle: Duration) -> Self {
         self.with(Delay::throttle(throttle))
     }
+    #[cfg(not(feature = "no_std"))]
     pub fn exponential_backoff(self, initial: Duration, multiplier: f32) -> Self {
         self.with(Delay::exponential_backoff(initial, multiplier))
     }
+    #[cfg(not(feature = "no_std"))]
     pub fn exponential_backoff_capped(
         self,
         initial: Duration,
@@ -199,38 +225,6 @@ struct InstantWaiter {}
 impl Waiter for InstantWaiter {
     fn wait(&self) -> Result<(), WaiterError> {
         Ok(())
-    }
-}
-
-#[derive(Clone)]
-struct TimeoutWaiter {
-    timeout: Duration,
-    start: Option<Instant>,
-}
-impl TimeoutWaiter {
-    pub fn new(timeout: Duration) -> Self {
-        Self {
-            timeout,
-            start: None,
-        }
-    }
-}
-impl Waiter for TimeoutWaiter {
-    fn restart(&mut self) -> Result<(), WaiterError> {
-        let _ = self.start.ok_or(WaiterError::NotStarted)?;
-        self.start = Some(Instant::now());
-        Ok(())
-    }
-    fn start(&mut self) {
-        self.start = Some(Instant::now());
-    }
-    fn wait(&self) -> Result<(), WaiterError> {
-        let start = self.start.ok_or(WaiterError::NotStarted)?;
-        if start.elapsed() > self.timeout {
-            Err(WaiterError::Timeout)
-        } else {
-            Ok(())
-        }
     }
 }
 

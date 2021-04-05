@@ -1,24 +1,25 @@
+#![cfg(not(feature = "no_std"))]
 use crate::{Waiter, WaiterError};
 use std::cell::RefCell;
-use std::future::Future;
-use std::pin::Pin;
+
+#[cfg(feature = "async")]
+use core::{future::Future, pin::Pin};
 use std::thread::sleep;
 use std::time::Duration;
 
 #[cfg(feature = "async")]
 mod future {
     use crate::WaiterError;
-    use std::future::Future;
-    use std::pin::Pin;
-    use std::sync::{Arc, Mutex};
-    use std::task::{Context, Poll, Waker};
-    use std::thread::{sleep, spawn};
-    use std::time::Duration;
+    use core::future::Future;
+    use core::pin::Pin;
+    use core::task::{Context, Poll, Waker};
+    use core::thread::{sleep, spawn};
+    use core::time::Duration;
 
     /// A Future that resolves when a time has passed.
     /// This is based on [https://rust-lang.github.io/async-book/02_execution/03_wakeups.html].
     pub(super) struct ThrottleTimerFuture {
-        shared_state: Arc<Mutex<SharedState>>,
+        shared_state: SharedState,
     }
 
     /// Shared state between the future and the waiting thread
@@ -63,10 +64,10 @@ mod future {
         /// Create a new `TimerFuture` which will complete after the provided
         /// timeout.
         pub fn new(duration: Duration) -> Self {
-            let shared_state = Arc::new(Mutex::new(SharedState {
+            let shared_state = SharedState {
                 completed: false,
                 waker: None,
-            }));
+            };
 
             // Spawn the new thread
             let thread_shared_state = shared_state.clone();

@@ -6,11 +6,11 @@ edition = "2018"
 description = "A collection of trait and classes to make your thread or async function wait."
 homepage = "https://github.com/hansl/rs-delay"
 repository = "https://github.com/hansl/rs-delay"
-documentation = "https://docs.rs/delay"
+documentation = "https://docs.rs/garcon"
 
 license = "Apache-2.0"
 readme = "README.md"
-categories = []
+categories = ["asynchronous", "no-std"]
 keywords = ["delay", "waiter", "thread", "sleep", "timeout"]
 include = ["Cargo.toml", "src", "README.md", "LICENSE"]
 
@@ -19,3 +19,4 @@ futures-util = { version = "0.3.13", optional = true }
 
 [features]
 async = ["futures-util"]
+no_std = []
