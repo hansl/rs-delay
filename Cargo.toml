@@ -17,6 +17,9 @@ include = ["Cargo.toml", "src", "README.md", "LICENSE"]
 [dependencies]
 futures-util = { version = "0.3.13", optional = true }
 
+[dev-dependencies]
+tokio = { version = "1.5.0", features = ["macros", "rt", "sync"] }
+
 [features]
 async = ["futures-util"]
 no_std = []

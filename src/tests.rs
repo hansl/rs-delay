@@ -34,6 +34,7 @@ fn counter_works() {
 
     assert!(waiter.wait().is_ok());
     assert!(waiter.wait().is_ok());
+    assert!(waiter.wait().is_ok());
     assert!(waiter.wait().is_err());
     assert!(waiter.wait().is_err());
 }
@@ -46,9 +47,11 @@ fn clone_works() {
     waiter1.start();
     assert!(waiter1.wait().is_ok());
     assert!(waiter1.wait().is_ok());
+    assert!(waiter1.wait().is_ok());
     assert!(waiter1.wait().is_err());
 
     waiter2.start();
+    assert!(waiter2.wait().is_ok());
     assert!(waiter2.wait().is_ok());
     assert!(waiter2.wait().is_ok());
     assert!(waiter2.wait().is_err());
@@ -114,4 +117,30 @@ fn can_send_between_threads() {
     tx.send(None).unwrap();
 
     rx_end.recv_timeout(Duration::from_millis(100)).unwrap();
+}
+
+#[tokio::test]
+async fn works_as_async() {
+    let mut waiter = Delay::count_timeout(5);
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel(5);
+    let (tx_end, mut rx_end) = tokio::sync::mpsc::channel(1);
+
+    tokio::task::spawn(async move {
+        waiter.start();
+
+        while let Some(x) = rx.recv().await.unwrap_or(None) {
+            for _i in 1..x {
+                waiter.async_wait().await.unwrap();
+            }
+        }
+
+        tx_end.send(()).await.unwrap();
+    });
+
+    tx.send(Some(4)).await.unwrap();
+    tx.send(Some(1)).await.unwrap();
+    tx.send(None).await.unwrap();
+
+    rx_end.recv().await.unwrap();
 }

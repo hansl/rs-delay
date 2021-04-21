@@ -26,14 +26,14 @@ impl Waiter for DelayComposer {
         self.a.start();
         self.b.start();
     }
-    fn wait(&self) -> Result<(), WaiterError> {
+    fn wait(&mut self) -> Result<(), WaiterError> {
         self.a.wait()?;
         self.b.wait()?;
         Ok(())
     }
 
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
+    fn async_wait(&mut self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
         use futures_util::TryFutureExt;
         Box::pin(
             futures_util::future::try_join(self.a.async_wait(), self.b.async_wait()).map_ok(|_| ()),

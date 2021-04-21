@@ -24,7 +24,7 @@ impl Waiter for TimeoutWaiter {
     fn start(&mut self) {
         self.start = Some(Instant::now());
     }
-    fn wait(&self) -> Result<(), WaiterError> {
+    fn wait(&mut self) -> Result<(), WaiterError> {
         let start = self.start.ok_or(WaiterError::NotStarted)?;
         if start.elapsed() > self.timeout {
             Err(WaiterError::Timeout)

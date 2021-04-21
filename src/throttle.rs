@@ -1,8 +1,8 @@
 #![cfg(not(feature = "no_std"))]
 use crate::{Waiter, WaiterError};
-use std::cell::RefCell;
 use std::time::Duration;
 
+use core::sync::atomic::{AtomicU64, Ordering};
 #[cfg(feature = "async")]
 use std::{future::Future, pin::Pin};
 
@@ -96,83 +96,89 @@ impl ThrottleWaiter {
     }
 }
 impl Waiter for ThrottleWaiter {
-    fn wait(&self) -> Result<(), WaiterError> {
+    fn wait(&mut self) -> Result<(), WaiterError> {
         std::thread::sleep(self.throttle);
 
         Ok(())
     }
 
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
+    fn async_wait(&mut self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
         Box::pin(future::ThrottleTimerFuture::new(self.throttle))
     }
 }
 
-#[derive(Clone)]
 pub struct ExponentialBackoffWaiter {
-    next: Option<RefCell<Duration>>,
-    initial: Duration,
-    multiplier: f32,
-    cap: Duration,
+    next_as_micros: Option<AtomicU64>,
+    initial_as_micros: u64,
+    multiplier: f64,
+    cap_as_micros: u64,
 }
 impl ExponentialBackoffWaiter {
     pub fn new(initial: Duration, multiplier: f32, cap: Duration) -> Self {
         ExponentialBackoffWaiter {
-            next: None,
-            initial,
-            multiplier,
-            cap,
+            next_as_micros: None,
+            initial_as_micros: initial.as_micros() as u64,
+            multiplier: multiplier as f64,
+            cap_as_micros: cap.as_micros() as u64,
+        }
+    }
+
+    fn increment(&mut self) -> Result<Duration, WaiterError> {
+        let next = self
+            .next_as_micros
+            .as_ref()
+            .ok_or(WaiterError::NotStarted)?;
+        let current = next.load(Ordering::Relaxed);
+
+        // Find the next throttle.
+        let next = u64::max(
+            (current as f64 * self.multiplier) as u64,
+            self.cap_as_micros,
+        );
+        self.next_as_micros
+            .as_mut()
+            .unwrap()
+            .store(next, Ordering::Relaxed);
+        Ok(Duration::from_micros(current))
+    }
+}
+impl Clone for ExponentialBackoffWaiter {
+    fn clone(&self) -> Self {
+        Self {
+            next_as_micros: self
+                .next_as_micros
+                .as_ref()
+                .map(|a| AtomicU64::new(a.load(Ordering::Relaxed))),
+            ..*self
         }
     }
 }
 impl Waiter for ExponentialBackoffWaiter {
     fn restart(&mut self) -> Result<(), WaiterError> {
-        let next = self.next.as_ref().ok_or(WaiterError::NotStarted)?;
-        next.replace(self.initial);
-        Ok(())
+        if self.next_as_micros.is_none() {
+            Err(WaiterError::NotStarted)
+        } else {
+            self.next_as_micros = Some(AtomicU64::new(self.initial_as_micros));
+            Ok(())
+        }
     }
 
     fn start(&mut self) {
-        self.next = Some(RefCell::new(self.initial));
+        self.next_as_micros = Some(AtomicU64::new(self.initial_as_micros));
     }
 
-    fn wait(&self) -> Result<(), WaiterError> {
-        let next = self.next.as_ref().ok_or(WaiterError::NotStarted)?;
-        let current = *next.borrow();
-        let current_nsec = current.as_nanos() as f32;
-
-        // Find the next throttle.
-        let mut next_duration = Duration::from_nanos((current_nsec * self.multiplier) as u64);
-        if next_duration > self.cap {
-            next_duration = self.cap;
-        }
-
-        next.replace(next_duration);
-
+    fn wait(&mut self) -> Result<(), WaiterError> {
+        let current = self.increment()?;
         std::thread::sleep(current);
-
         Ok(())
     }
 
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
-        let next = if let Some(next) = self.next.as_ref() {
-            next
-        } else {
-            return Box::pin(std::future::ready(Err(WaiterError::NotStarted)));
-        };
-
-        let current = *next.borrow();
-        let current_nsec = current.as_nanos() as f32;
-
-        // Find the next throttle.
-        let mut next_duration = Duration::from_nanos((current_nsec * self.multiplier) as u64);
-        if next_duration > self.cap {
-            next_duration = self.cap;
+    fn async_wait(&mut self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
+        match self.increment() {
+            Ok(current) => Box::pin(future::ThrottleTimerFuture::new(current)),
+            Err(e) => Box::pin(futures_util::future::err(e)),
         }
-
-        next.replace(next_duration);
-
-        Box::pin(future::ThrottleTimerFuture::new(current))
     }
 }

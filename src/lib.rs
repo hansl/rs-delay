@@ -2,7 +2,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use core::cell::RefCell;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(not(feature = "no_std"))]
 use core::time::Duration;
@@ -41,7 +41,7 @@ pub enum WaiterError {
 /// A waiter trait, that can be used for executing a delay. Waiters need to be
 /// multi-threaded and cloneable.
 /// A waiter should not be reused twice.
-pub trait Waiter: WaiterClone + Send {
+pub trait Waiter: WaiterClone + Send + Sync {
     /// Restart the wait timer.
     /// Call after starting the waiter otherwise returns an error.
     fn restart(&mut self) -> Result<(), WaiterError> {
@@ -53,12 +53,12 @@ pub trait Waiter: WaiterClone + Send {
 
     /// Called at each cycle of the waiting cycle.
     /// Call after starting the waiter otherwise returns an error.
-    fn wait(&self) -> Result<(), WaiterError>;
+    fn wait(&mut self) -> Result<(), WaiterError>;
 
     /// Async version of [wait]. By default call the blocking wait. Should be implemented
     /// to be non-blocking.
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
+    fn async_wait(&mut self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
         Box::pin(future::ready(self.wait()))
     }
 }
@@ -99,15 +99,15 @@ impl Waiter for Box<dyn Waiter> {
 
     /// Called at each cycle of the waiting cycle.
     /// Call after starting the waiter otherwise returns an error.
-    fn wait(&self) -> Result<(), WaiterError> {
-        self.as_ref().wait()
+    fn wait(&mut self) -> Result<(), WaiterError> {
+        self.as_mut().wait()
     }
 
     /// Async version of [wait]. By default call the blocking wait. Should be implemented
     /// to be non-blocking.
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
-        self.as_ref().async_wait()
+    fn async_wait(&mut self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
+        self.as_mut().async_wait()
     }
 }
 
@@ -193,12 +193,12 @@ impl Waiter for Delay {
     fn start(&mut self) {
         self.inner.start()
     }
-    fn wait(&self) -> Result<(), WaiterError> {
+    fn wait(&mut self) -> Result<(), WaiterError> {
         self.inner.wait()
     }
 
     #[cfg(feature = "async")]
-    fn async_wait(&self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
+    fn async_wait(&mut self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
         self.inner.async_wait()
     }
 }
@@ -253,15 +253,14 @@ impl DelayBuilder {
 #[derive(Clone)]
 struct InstantWaiter {}
 impl Waiter for InstantWaiter {
-    fn wait(&self) -> Result<(), WaiterError> {
+    fn wait(&mut self) -> Result<(), WaiterError> {
         Ok(())
     }
 }
 
-#[derive(Clone)]
 struct CountTimeoutWaiter {
     max_count: u64,
-    count: Option<RefCell<u64>>,
+    count: Option<AtomicU64>,
 }
 impl CountTimeoutWaiter {
     pub fn new(max_count: u64) -> Self {
@@ -271,22 +270,35 @@ impl CountTimeoutWaiter {
         }
     }
 }
+impl Clone for CountTimeoutWaiter {
+    fn clone(&self) -> Self {
+        Self {
+            max_count: self.max_count,
+            count: self
+                .count
+                .as_ref()
+                .map(|count| AtomicU64::new(count.load(Ordering::Relaxed))),
+        }
+    }
+}
 impl Waiter for CountTimeoutWaiter {
     fn restart(&mut self) -> Result<(), WaiterError> {
-        let count = self.count.as_ref().ok_or(WaiterError::NotStarted)?;
-        count.replace(0);
-        Ok(())
+        if self.count.is_none() {
+            Err(WaiterError::NotStarted)
+        } else {
+            self.count = Some(AtomicU64::new(0));
+            Ok(())
+        }
     }
 
     fn start(&mut self) {
-        self.count = Some(RefCell::new(0));
+        self.count = Some(AtomicU64::new(0));
     }
 
-    fn wait(&self) -> Result<(), WaiterError> {
-        let count = self.count.as_ref().ok_or(WaiterError::NotStarted)?;
-        let current = *count.borrow() + 1;
-        count.replace(current);
+    fn wait(&mut self) -> Result<(), WaiterError> {
+        let count = self.count.as_mut().ok_or(WaiterError::NotStarted)?;
 
+        let current = count.fetch_add(1, Ordering::Relaxed);
         if current >= self.max_count {
             Err(WaiterError::Timeout)
         } else {
@@ -315,7 +327,7 @@ impl<F> Waiter for SideEffectWaiter<F>
 where
     F: 'static + Sync + Send + Clone + Fn() -> Result<(), WaiterError>,
 {
-    fn wait(&self) -> Result<(), WaiterError> {
+    fn wait(&mut self) -> Result<(), WaiterError> {
         (self.function)()
     }
 }
