@@ -8,10 +8,7 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use core::time::Duration;
 
 #[cfg(feature = "async")]
-use core::{
-    future::{self, Future},
-    pin::Pin,
-};
+use core::{future::Future, pin::Pin};
 
 #[cfg(not(feature = "no_std"))]
 mod throttle;
