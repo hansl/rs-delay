@@ -59,7 +59,7 @@ pub trait Waiter: WaiterClone + Send + Sync {
     /// to be non-blocking.
     #[cfg(feature = "async")]
     fn async_wait(&mut self) -> Pin<Box<dyn Future<Output = Result<(), WaiterError>> + Send>> {
-        Box::pin(future::ready(self.wait()))
+        Box::pin(futures_util::future::ready(self.wait()))
     }
 }
 

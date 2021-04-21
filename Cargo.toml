@@ -1,6 +1,6 @@
 [package]
 name = "garcon"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Hans Larsen <hans@larsen.online>"]
 edition = "2018"
 description = "A collection of trait and classes to make your thread or async function wait."
