@@ -132,7 +132,7 @@ impl ExponentialBackoffWaiter {
         let current = next.load(Ordering::Relaxed);
 
         // Find the next throttle.
-        let next = u64::max(
+        let next = u64::min(
             (current as f64 * self.multiplier) as u64,
             self.cap_as_micros,
         );
